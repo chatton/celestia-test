@@ -78,6 +78,10 @@ type BridgeNode struct {
 	hostP2PPort string
 }
 
+func (b *BridgeNode) GetRPCAddress() string {
+	return b.hostRPCPort
+}
+
 // Stop terminates the BridgeNode by removing its associated container gracefully using the provided context.
 func (b *BridgeNode) Stop(ctx context.Context) error {
 	return b.RemoveContainer(ctx)

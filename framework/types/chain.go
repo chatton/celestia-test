@@ -35,19 +35,3 @@ type ChainNode interface {
 	// GetInternalHostName returns the hostname resolvable within the network.
 	GetInternalHostName(ctx context.Context) (string, error)
 }
-
-type Header struct {
-	// TODO: add anything else we need or use different types.
-	Height uint64 `json:"height"`
-}
-
-type Node interface {
-	// Start starts the node.
-	Start(ctx context.Context, coreIp, genesisBlockHash string) error
-	// Stop stops the node.
-	Stop(ctx context.Context) error
-	// GetType returns the type of node. E.g. "bridge" / "light"
-	GetType() string
-	// GetHeader returns a header at a specified height.
-	GetHeader(ctx context.Context, height uint64) (Header, error)
-}
