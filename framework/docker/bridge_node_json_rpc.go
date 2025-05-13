@@ -29,8 +29,8 @@ type RPCError struct {
 	Message string `json:"message"`
 }
 
-func (b *BridgeNode) GetHeader(ctx context.Context, height uint64) (types.Header, error) {
-	url := fmt.Sprintf("http://%s", b.hostRPCPort)
+func (n *DANode) GetHeader(ctx context.Context, height uint64) (types.Header, error) {
+	url := fmt.Sprintf("http://%s", n.hostRPCPort)
 
 	// JSON-RPC payload
 	payload := map[string]interface{}{
