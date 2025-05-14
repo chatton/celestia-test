@@ -14,14 +14,14 @@ import (
 var _ types.DANode = &DANode{}
 
 const (
-	bridgeNodeRPCPort = "26658/tcp"
-	bridgeNodeP2PPort = "2121/tcp"
+	daNodeRPCPort = "26658/tcp"
+	daNodeP2PPort = "2121/tcp"
 )
 
-// bridgeNodePorts defines the default port mappings for the DANode's RPC and P2P communication.
-var bridgeNodePorts = nat.PortMap{
-	nat.Port(bridgeNodeRPCPort): {},
-	nat.Port(bridgeNodeP2PPort): {},
+// daNodePorts defines the default port mappings for the DANode's RPC and P2P communication.
+var daNodePorts = nat.PortMap{
+	nat.Port(daNodeRPCPort): {},
+	nat.Port(daNodeP2PPort): {},
 }
 
 // newDANode initializes and returns a new DANode instance using the provided context, test name, and configuration.
@@ -38,7 +38,7 @@ func newDANode(ctx context.Context, testName string, cfg Config, nodeType types.
 		log: cfg.Logger.With(
 			zap.String("node_type", nodeType.String()),
 		),
-		node: newNode(cfg.DockerNetworkID, cfg.DockerClient, testName, image, "/home/celestia", "bridge"),
+		node: newNode(cfg.DockerNetworkID, cfg.DockerClient, testName, image, "/home/celestia", nodeType.String()),
 	}
 
 	bn.containerLifecycle = NewContainerLifecycle(cfg.Logger, cfg.DockerClient, bn.Name())
@@ -80,6 +80,7 @@ type DANode struct {
 	hostP2PPort string
 }
 
+// GetType returns the type of the DANode as defined by the types.DANodeType enum.
 func (n *DANode) GetType() types.DANodeType {
 	return n.nodeType
 }
@@ -96,25 +97,37 @@ func (n *DANode) Stop(ctx context.Context) error {
 
 // Start initializes and starts the DANode with the provided core IP and genesis hash in the given context.
 // It returns an error if the node initialization or startup fails.
-func (n *DANode) Start(ctx context.Context, coreIp string, genesisHash string) error {
-	if err := n.initNode(ctx); err != nil {
+func (n *DANode) Start(ctx context.Context, opts types.DANodeStartOptions) error {
+	env := []string{
+		fmt.Sprintf("P2P_NETWORK=%s", n.cfg.ChainID),
+	}
+
+	switch n.GetType() {
+	case types.BridgeNode:
+		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s", n.cfg.ChainID, opts.GenesisBlockHash))
+	case types.LightNode:
+		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s:%s", n.cfg.ChainID, opts.GenesisBlockHash, opts.P2PAddress))
+	case types.FullNode:
+		panic("full node not yet supported")
+	}
+
+	if err := n.initNode(ctx, env); err != nil {
 		return fmt.Errorf("failed to initialize p2p network: %w", err)
 	}
 
-	if err := n.startBridgeNode(ctx, coreIp, genesisHash); err != nil {
+	if err := n.startNode(ctx, opts, env); err != nil {
 		return fmt.Errorf("failed to start bridge node: %w", err)
 	}
 
 	return nil
 }
 
-// disableRPCAuth disables RPC authentication so that the tests can use the endpoints without configuring auth.
-func (n *DANode) disableRPCAuth(ctx context.Context) error {
+// modifyConfigToml disables RPC authentication so that the tests can use the endpoints without configuring auth.
+func (n *DANode) modifyConfigToml(ctx context.Context, startOpts types.DANodeStartOptions) error {
 	modifications := make(toml.Toml)
 	rpc := make(toml.Toml)
 	rpc["SkipAuth"] = true
 	modifications["RPC"] = rpc
-
 	return ModifyConfigFile(
 		ctx,
 		n.log,
@@ -126,18 +139,13 @@ func (n *DANode) disableRPCAuth(ctx context.Context) error {
 	)
 }
 
-func (n *DANode) startBridgeNode(ctx context.Context, coreIp, genesisHash string) error {
-	env := []string{
-		fmt.Sprintf("P2P_NETWORK=%s", n.cfg.ChainID),
-		fmt.Sprintf("CELESTIA_CUSTOM=%s:%s", n.cfg.ChainID, genesisHash),
-	}
-
-	if err := n.CreateNodeContainer(ctx, coreIp, env); err != nil {
+// startNode initializes and starts the DANode container and updates its configuration based on the provided options.
+func (n *DANode) startNode(ctx context.Context, opts types.DANodeStartOptions, env []string) error {
+	if err := n.createNodeContainer(ctx, opts, env); err != nil {
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 
-	// TODO: eventually re-enable and test with auth.
-	if err := n.disableRPCAuth(ctx); err != nil {
+	if err := n.modifyConfigToml(ctx, opts); err != nil {
 		return fmt.Errorf("failed to disable RPC auth: %w", err)
 	}
 
@@ -146,7 +154,7 @@ func (n *DANode) startBridgeNode(ctx context.Context, coreIp, genesisHash string
 	}
 
 	// Set the host ports once since they will not change after the container has started.
-	hostPorts, err := n.containerLifecycle.GetHostPorts(ctx, bridgeNodeRPCPort, bridgeNodeP2PPort)
+	hostPorts, err := n.containerLifecycle.GetHostPorts(ctx, daNodeRPCPort, daNodeP2PPort)
 	if err != nil {
 		return err
 	}
@@ -155,18 +163,19 @@ func (n *DANode) startBridgeNode(ctx context.Context, coreIp, genesisHash string
 	return nil
 }
 
-func (n *DANode) initNode(ctx context.Context) error {
+// initNode initializes the DANode by running the "init" command for the specified DANode type, network, and keyring settings.
+func (n *DANode) initNode(ctx context.Context, env []string) error {
 	// note: my_celes_key is the default key name for the bridge node.
 	cmd := []string{"celestia", n.nodeType.String(), "init", "--p2p.network", n.cfg.ChainID, "--keyring.keyname", "my_celes_key", "--node.store", n.homeDir}
-	_, _, err := n.exec(ctx, n.log, cmd, nil)
+	_, _, err := n.exec(ctx, n.log, cmd, env)
 	return err
 }
 
-func (n *DANode) CreateNodeContainer(ctx context.Context, coreIp string, env []string) error {
-	cmd := []string{"celestia", n.nodeType.String(), "start", "--p2p.network", n.cfg.ChainID, "--core.ip", coreIp, "--rpc.addr", "0.0.0.0", "--rpc.port", "26658", "--keyring.keyname", "my_celes_key", "--node.store", n.homeDir}
-
+// createNodeContainer creates and initializes a container for the DANode with specified context, options, and environment variables.
+func (n *DANode) createNodeContainer(ctx context.Context, opts types.DANodeStartOptions, env []string) error {
+	cmd := []string{"celestia", n.nodeType.String(), "start", "--p2p.network", n.cfg.ChainID, "--core.ip", opts.CoreIP, "--rpc.addr", "0.0.0.0", "--rpc.port", "26658", "--keyring.keyname", "my_celes_key", "--node.store", n.homeDir}
 	usingPorts := nat.PortMap{}
-	for k, v := range bridgeNodePorts {
+	for k, v := range daNodePorts {
 		usingPorts[k] = v
 	}
 
