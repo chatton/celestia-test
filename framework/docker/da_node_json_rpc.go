@@ -20,16 +20,12 @@ type Header struct {
 	Height string `json:"height"`
 }
 
-type GetHeaderResponse struct {
-	Result HeaderResult `json:"result"`
-	Error  *RPCError    `json:"error"`
-}
-
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
+// GetHeader fetches a header for the given block height from the DANode via an RPC call and returns it.
 func (n *DANode) GetHeader(ctx context.Context, height uint64) (types.Header, error) {
 	url := fmt.Sprintf("http://%s", n.hostRPCPort)
 
@@ -46,6 +42,7 @@ func (n *DANode) GetHeader(ctx context.Context, height uint64) (types.Header, er
 	return types.Header{Height: uint64(h)}, nil
 }
 
+// GetAllBlobs retrieves all blobs from the node for the specified height and namespaces via an RPC call.
 func (n *DANode) GetAllBlobs(ctx context.Context, height uint64, namespaces []share.Namespace) ([]types.Blob, error) {
 	url := fmt.Sprintf("http://%s", n.hostRPCPort)
 	result, err := callRPC[[]types.Blob](ctx, url, "blob.GetAll", []any{height, namespaces})
@@ -55,6 +52,7 @@ func (n *DANode) GetAllBlobs(ctx context.Context, height uint64, namespaces []sh
 	return result, nil
 }
 
+// GetP2PInfo retrieves the p2p information of the node, such as PeerID and Addresses, via an RPC call.
 func (n *DANode) GetP2PInfo(ctx context.Context) (types.P2PInfo, error) {
 	url := fmt.Sprintf("http://%s", n.hostRPCPort)
 	p2pInfo, err := callRPC[types.P2PInfo](ctx, url, "p2p.Info", []any{})
