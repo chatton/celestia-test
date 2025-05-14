@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/celestiaorg/go-square/v2/share"
 	"regexp"
+	"strings"
 )
 
 var p2pAddressPattern *regexp.Regexp
@@ -69,7 +70,7 @@ var nodeStrings = [...]string{
 
 type DANode interface {
 	// Start starts the node.
-	Start(ctx context.Context, opts DANodeStartOptions) error
+	Start(ctx context.Context, opts ...DANodeStartOption) error
 	// Stop stops the node.
 	Stop(ctx context.Context) error
 	// GetType returns the type of node. E.g. "bridge" / "light" / "full"
@@ -90,8 +91,57 @@ type Blob struct {
 	Index        int    `json:"index"`
 }
 
+type DANodeStartOption func(*DANodeStartOptions)
+
+// DANodeStartOptions represents the configuration options required for starting a DA node.
 type DANodeStartOptions struct {
-	P2PAddress       string
+	// P2PAddress specifies the peer-to-peer network address used when starting a light node.
+	P2PAddress string
+	// GenesisBlockHash specifies the hash of the genesis block used to initialize the DA node.
 	GenesisBlockHash string
-	CoreIP           string
+	// CoreIP specifies the IP address of the core node.
+	CoreIP string
+}
+
+// Validate checks if the required fields in DANodeStartOptions are correctly set based on the provided DANodeType.
+// Returns an error if validation fails.
+func (o DANodeStartOptions) Validate(nodeType DANodeType) error {
+	switch nodeType {
+	case LightNode:
+		if strings.TrimSpace(o.P2PAddress) == "" {
+			return fmt.Errorf("p2p address is required for %s nodes", nodeType)
+		}
+		// also perform the same validation for bridge nodes on light nodes.
+		fallthrough
+	case BridgeNode:
+		if strings.TrimSpace(o.CoreIP) == "" {
+			return fmt.Errorf("core ip is required for %s nodes", nodeType)
+		}
+		if strings.TrimSpace(o.GenesisBlockHash) == "" {
+			return fmt.Errorf("genesis block hash is required for %s nodes", nodeType)
+		}
+	case FullNode:
+	}
+	return nil
+}
+
+// WithP2PAddress sets the peer-to-peer network address in the DA node start options.
+func WithP2PAddress(addr string) DANodeStartOption {
+	return func(o *DANodeStartOptions) {
+		o.P2PAddress = addr
+	}
+}
+
+// WithGenesisBlockHash sets the genesis block hash in the DA node start options.
+func WithGenesisBlockHash(hash string) DANodeStartOption {
+	return func(o *DANodeStartOptions) {
+		o.GenesisBlockHash = hash
+	}
+}
+
+// WithCoreIP sets the IP address of the core node in the DA node start options.
+func WithCoreIP(ip string) DANodeStartOption {
+	return func(o *DANodeStartOptions) {
+		o.CoreIP = ip
+	}
 }

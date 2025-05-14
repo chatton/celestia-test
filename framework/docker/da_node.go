@@ -97,16 +97,21 @@ func (n *DANode) Stop(ctx context.Context) error {
 
 // Start initializes and starts the DANode with the provided core IP and genesis hash in the given context.
 // It returns an error if the node initialization or startup fails.
-func (n *DANode) Start(ctx context.Context, opts types.DANodeStartOptions) error {
+func (n *DANode) Start(ctx context.Context, opts ...types.DANodeStartOption) error {
+	startOpts := types.DANodeStartOptions{}
+	for _, fn := range opts {
+		fn(&startOpts)
+	}
+
 	env := []string{
 		fmt.Sprintf("P2P_NETWORK=%s", n.cfg.ChainID),
 	}
 
 	switch n.GetType() {
 	case types.BridgeNode:
-		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s", n.cfg.ChainID, opts.GenesisBlockHash))
+		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s", n.cfg.ChainID, startOpts.GenesisBlockHash))
 	case types.LightNode:
-		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s:%s", n.cfg.ChainID, opts.GenesisBlockHash, opts.P2PAddress))
+		env = append(env, fmt.Sprintf("CELESTIA_CUSTOM=%s:%s:%s", n.cfg.ChainID, startOpts.GenesisBlockHash, startOpts.P2PAddress))
 	case types.FullNode:
 		panic("full node not yet supported")
 	}
@@ -115,7 +120,7 @@ func (n *DANode) Start(ctx context.Context, opts types.DANodeStartOptions) error
 		return fmt.Errorf("failed to initialize p2p network: %w", err)
 	}
 
-	if err := n.startNode(ctx, opts, env); err != nil {
+	if err := n.startNode(ctx, startOpts, env); err != nil {
 		return fmt.Errorf("failed to start bridge node: %w", err)
 	}
 
@@ -123,7 +128,7 @@ func (n *DANode) Start(ctx context.Context, opts types.DANodeStartOptions) error
 }
 
 // modifyConfigToml disables RPC authentication so that the tests can use the endpoints without configuring auth.
-func (n *DANode) modifyConfigToml(ctx context.Context, startOpts types.DANodeStartOptions) error {
+func (n *DANode) modifyConfigToml(ctx context.Context) error {
 	modifications := make(toml.Toml)
 	rpc := make(toml.Toml)
 	rpc["SkipAuth"] = true
@@ -145,7 +150,7 @@ func (n *DANode) startNode(ctx context.Context, opts types.DANodeStartOptions, e
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 
-	if err := n.modifyConfigToml(ctx, opts); err != nil {
+	if err := n.modifyConfigToml(ctx); err != nil {
 		return fmt.Errorf("failed to disable RPC auth: %w", err)
 	}
 
